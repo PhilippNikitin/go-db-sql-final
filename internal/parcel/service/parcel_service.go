@@ -6,18 +6,18 @@ import (
 
 	"github.com/Yandex-Practicum/go-db-sql-final/internal/constants"
 	"github.com/Yandex-Practicum/go-db-sql-final/internal/models"
-	"github.com/Yandex-Practicum/go-db-sql-final/internal/parcel_store"
+	"github.com/Yandex-Practicum/go-db-sql-final/internal/parcel/store"
 )
 
 // создаем структурный тип ParcelService
 type ParcelService struct {
-	store parcel_store.ParcelStore // поле store содержит структуру типа ParcelStore
+	store store.ParcelStore // поле store содержит структуру типа ParcelStore
 }
 
 // Функция NewParcelService возвращает новый экземпляр типа ParcelService
 // Параметры
 // store - экземпляр типа ParcelStore
-func NewParcelService(store parcel_store.ParcelStore) ParcelService {
+func NewParcelService(store store.ParcelStore) ParcelService {
 	return ParcelService{store: store}
 }
 

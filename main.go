@@ -6,8 +6,8 @@ import (
 
 	_ "modernc.org/sqlite"
 
-	"github.com/Yandex-Practicum/go-db-sql-final/internal/parcel_service"
-	"github.com/Yandex-Practicum/go-db-sql-final/internal/parcel_store"
+	serv "github.com/Yandex-Practicum/go-db-sql-final/internal/parcel/service"
+	"github.com/Yandex-Practicum/go-db-sql-final/internal/parcel/store"
 )
 
 func main() {
@@ -22,8 +22,8 @@ func main() {
 	defer db.Close()
 
 	// создаем объект ParcelStore функцией NewParcelStore
-	store := parcel_store.NewParcelStore(db)
-	service := parcel_service.NewParcelService(store)
+	store := store.NewParcelStore(db)
+	service := serv.NewParcelService(store)
 
 	// регистрация посылки
 	client := 1

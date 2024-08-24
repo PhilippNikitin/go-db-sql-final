@@ -1,11 +1,12 @@
-package parcel_store
+package store
 
 import (
 	"database/sql"
 	"fmt"
 
+	"github.com/Yandex-Practicum/go-db-sql-final/internal/constants"
 	"github.com/Yandex-Practicum/go-db-sql-final/internal/models"
-	"github.com/Yandex-Practicum/go-db-sql-final/internal/parcel_errors"
+	"github.com/Yandex-Practicum/go-db-sql-final/internal/parcel/errors"
 )
 
 // определяем структурный тип ParcelStore для работы с БД
@@ -21,25 +22,6 @@ func NewParcelStore(db *sql.DB) ParcelStore {
 	return ParcelStore{db: db}
 }
 
-// метод GetParcelCountByClient позволяет получить
-// количество посылок у интереceющего клиента
-// Параметры
-// client - идентификатор клиента
-// возвращает целое число,
-// количество посылок у интересующего клиента в таблице parcel
-// и ошибку, если она возникла в ходе выполнения функции
-func (s ParcelStore) GetParcelCountByClient(client int) (int, error) {
-	var rowsCount int
-	row := s.db.QueryRow(`SELECT COUNT(*)
-						  FROM parcel
-						  WHERE client = :client`, sql.Named("client", client))
-	err := row.Scan(&rowsCount)
-	if err != nil {
-		return 0, err
-	}
-	return rowsCount, nil
-}
-
 // Метод Add типа ParcelStore добавляет
 // в таблицу parcel в БД запись для новой посылки
 // Параметры
@@ -53,14 +35,12 @@ func (s ParcelStore) Add(p models.Parcel) (int, error) {
 		sql.Named("client", p.Client), sql.Named("status", p.Status),
 		sql.Named("address", p.Address), sql.Named("created_at", p.CreatedAt))
 	if err != nil {
-		fmt.Println(err)
 		return 0, err
 	}
 
 	// получаем id последней добавленной записи
 	id, err := res.LastInsertId()
 	if err != nil {
-		fmt.Println(err)
 		return 0, err
 	}
 
@@ -69,15 +49,14 @@ func (s ParcelStore) Add(p models.Parcel) (int, error) {
 }
 
 // Метод Get типа ParcelStore
-// получает данные о посылке из БД
-// по идентификатору посылки
+// получает данные о посылке из БД по идентификатору посылки
 // Параметры
 // number - идентификатор посылки
 // возвращает экземпляр типа Parcel
 // и ошибку, если она возникла в ходе выполнения функции
 func (s ParcelStore) Get(number int) (models.Parcel, error) {
 	// из таблицы возвращается только одна строка
-	row := s.db.QueryRow(`SELECT *
+	row := s.db.QueryRow(`SELECT number, client, status, address, created_at
 						  FROM parcel
 						  WHERE number = :number`,
 		sql.Named("number", number))
@@ -93,43 +72,36 @@ func (s ParcelStore) Get(number int) (models.Parcel, error) {
 }
 
 // Метод GetByClient типа ParcelStore
-// применяется для получения всех посылок
-// интересующего клиента из БД
+// применяется для получения всех посылок интересующего клиента из БД
 // Параметры
-// client - идентификатор клиента, посылки
-// которого мы хотим получить
+// client - идентификатор клиента, посылки которого мы хотим получить
 // возвращает слайс из структур типа Parcel
-// и ошибку, если она возникла
-// в ходе выполнения функции
+// и ошибку, если она возникла в ходе выполнения функции
 func (s ParcelStore) GetByClient(client int) ([]models.Parcel, error) {
 	// здесь из таблицы может вернуться несколько строк
-	rows, err := s.db.Query(`SELECT *
+	rows, err := s.db.Query(`SELECT number, client, status, address, created_at
 							 FROM parcel
 							 WHERE client = :client`, sql.Named("client", client))
 	if err != nil {
-		fmt.Println(err)
 		return nil, err
 	}
 
 	defer rows.Close()
 
-	// получаем количество заказов клиента, чтобы создать слайс с заранее известной capacity для оптимизации производительности
-	parcelCountForClient, err := s.GetParcelCountByClient(client)
-	if err != nil {
-		return nil, err
-	}
-
-	// зная количество строк, можно создать слайс с известной capacity (равной parcelCountForClient) для уменьшения числа аллокаций
-	var res = make([]models.Parcel, 0, parcelCountForClient)
+	// cоздаем слайс для сохранения всех посылок клиента
+	var res = make([]models.Parcel, 0)
 
 	for rows.Next() {
 		p := models.Parcel{}
 		err := rows.Scan(&p.Number, &p.Client, &p.Status, &p.Address, &p.CreatedAt)
 		if err != nil {
-			fmt.Println(err)
 			return res, err
 		}
 		res = append(res, p)
+	}
+
+	if err = rows.Err(); err != nil {
+		return res, err
 	}
 
 	return res, nil
@@ -145,7 +117,6 @@ func (s ParcelStore) SetStatus(number int, status string) error {
 	_, err := s.db.Exec("UPDATE parcel SET status = :status WHERE number = :number",
 		sql.Named("status", status), sql.Named("number", number))
 	if err != nil {
-		fmt.Println(err)
 		return err
 	}
 
@@ -161,29 +132,30 @@ func (s ParcelStore) SetStatus(number int, status string) error {
 // address - новый адрес
 // возвращает ошибку
 func (s ParcelStore) SetAddress(number int, address string) error {
-	// получаем текущий статус посылки
-	row := s.db.QueryRow(`SELECT status
-						  FROM parcel
-						  WHERE number = :number`,
-		sql.Named("number", number))
-
-	var status string
-	err := row.Scan(&status)
-	if err != nil {
-		return err
-	}
-
-	if status != "registered" {
-		fmt.Println("Недопустимый статус посылки для изменения адреса")
-		return parcel_errors.ErrUnsuitableParcelStatus
-	}
-
-	_, err = s.db.Exec("UPDATE parcel SET address = :address WHERE number = :number",
+	res, err := s.db.Exec(`UPDATE parcel
+						SET address = :address
+						WHERE number = :number AND
+							  status = :registered`,
 		sql.Named("address", address),
-		sql.Named("number", number))
+		sql.Named("number", number),
+		sql.Named("registered", constants.ParcelStatusRegistered))
+
 	if err != nil {
-		fmt.Println(err)
 		return err
+	}
+
+	// проверяем количество измененных строк при помощи переменной res
+	// равенство 0 возможно в двух случаях:
+	// в функцию был передан несуществующий номер посылки
+	// или ее статус не равен `зарегистрирована`
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+
+	// информируем о неудачной операции
+	if rowsAffected == 0 {
+		return errors.ErrUnsuccessful
 	}
 
 	return nil
@@ -196,28 +168,28 @@ func (s ParcelStore) SetAddress(number int, address string) error {
 // Параметры
 // number - номер посылки, которую требуется удалить
 func (s ParcelStore) Delete(number int) error {
-	// проверяем, если статус посылки равен "зарегистрирована"
-	// получаем текущий статус посылки
-	row := s.db.QueryRow(`SELECT status
-						  FROM parcel
-						  WHERE number = :number`, sql.Named("number", number))
-
-	var status string
-	err := row.Scan(&status)
-	if err != nil {
-		return err
-	}
-
-	if status != "registered" {
-		fmt.Println("Недопустимый статус посылки для удаления:")
-		return parcel_errors.ErrUnsuitableParcelStatus
-	}
-
-	// в случае, когда статус посылки равен "зарегистрирована", можно удалить посылку
-	_, err = s.db.Exec("DELETE FROM parcel WHERE number = :number", sql.Named("number", number))
+	res, err := s.db.Exec(`DELETE FROM parcel
+						WHERE number = :number AND
+						status = :registered`,
+		sql.Named("number", number),
+		sql.Named("registered", constants.ParcelStatusRegistered))
 	if err != nil {
 		fmt.Println(err)
 		return err
+	}
+
+	// проверяем, что посылка была удалена, при помощи res.RowsAffected()
+	// неуспешная операция возможна в двух случаях:
+	// в функцию был передан несуществующий номер посылки
+	// или ее статус не равен `зарегистрирована`
+	rowsAffected, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+
+	// информируем о неудачной операции
+	if rowsAffected == 0 {
+		return errors.ErrUnsuccessful
 	}
 
 	return nil
